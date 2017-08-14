@@ -1,11 +1,19 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+#include <limits.h>
 #include <unistd.h>
 #include <spawn.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 
 #include <ngkh/subproc.h>
 
-pid_t ngkh_subproc(char *const *argv, FILE **std_in, FILE **std_out)
+#include "subproc_local.h"
+
+//===== ngkh_subproc() =====
+pid_t ngkh_subproc(const char *exec_path, char *const *argv, FILE **std_in, FILE **std_out)
 {
 	enum { read = 0, write = 1 };
 
@@ -44,7 +52,7 @@ pid_t ngkh_subproc(char *const *argv, FILE **std_in, FILE **std_out)
 		posix_spawn_file_actions_addclose(&actions, pipe_c2p[write]);
 	}
 
-	if (posix_spawnp(&pid, argv[0], &actions, NULL, argv, NULL) != 0) {
+	if (posix_spawn(&pid, exec_path, &actions, NULL, argv, NULL) != 0) {
 		fprintf(stderr, "Error: Fail to spawn process.\n");
 		pid = -1;
 
@@ -62,5 +70,56 @@ pid_t ngkh_subproc(char *const *argv, FILE **std_in, FILE **std_out)
 	*std_out = fdopen(pipe_c2p[read],  "r");
 
 	return pid;
+}
+
+//===== ngkh_find_exec_path() =====
+char *ngkh_subproc_find_exec_path(const char *exec_name)
+{
+	char *env_path = getenv("PATH");
+	char *path_dir;
+	char abs_path[PATH_MAX+1];
+
+	if ((env_path == NULL) || (env_path[0] == '\0')) {
+		fprintf(stderr, "Error: The environment variable of \"PATH\" is not set.\n");
+		return NULL;
+	}
+
+	path_dir = strtok(env_path, ":");
+	if (ngkh_check_exist_executable(path_dir, exec_name, abs_path))
+		return realpath(abs_path, NULL);
+
+	while ((path_dir = strtok(NULL, ":")) != NULL) {
+		if (ngkh_check_exist_executable(path_dir, exec_name, abs_path))
+			return realpath(abs_path, NULL);
+	}
+
+	fprintf(stderr, "Error: The executable of \"%s\" cannot be found.\n", exec_name);
+
+	return NULL; // if not found
+}
+
+bool ngkh_check_exist_executable(const char *dir, const char *exec_name, char *abs_path)
+{
+	char        _abs_path[PATH_MAX+1];
+	struct stat st;
+
+	if ((strlen(dir) + strlen(exec_name)) > PATH_MAX) {
+		fprintf(stderr, "Error: The path of executable is too long.\n");
+		return false;
+	}
+
+	sprintf(_abs_path, "%s/%s", dir, exec_name);
+	if (!realpath(_abs_path, abs_path))
+		return false;
+
+	if (stat(abs_path, &st) == -1) {
+		fprintf(stderr, "Error: Something occurred.\n");
+		return false;
+	}
+
+	if (!S_ISREG(st.st_mode))
+		return false;
+
+	return true;
 }
 

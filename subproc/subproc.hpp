@@ -4,6 +4,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <stdexcept>
 #include <csignal>
 
 #include <sys/wait.h>
@@ -17,9 +18,9 @@ class subproc {
 	public:
 		//Constructors
 		subproc(void) : is_open_in(false), is_open_out(false), _pid(0) {}
-		subproc(const std::vector<std::string> &argv, bool isUseStdOut = false, bool isUseStdIn = false)
+		subproc(const std::string &exec_path, const std::vector<std::string> &argv, bool isUseStdOut = false, bool isUseStdIn = false)
 			: is_open_in(false), is_open_out(false), _pid(0)
-		{ this->create(argv, isUseStdOut, isUseStdIn); /* This set member variables. */}
+		{ this->create(exec_path, argv, isUseStdOut, isUseStdIn); /* This set member variables. */}
 
 		// Destructor
 		~subproc(void);
@@ -28,7 +29,7 @@ class subproc {
 		typedef pid_t pid_type; // This means "ngkh::subproc::pid_type"
 
 		// Methods
-		void     create(const std::vector<std::string> &argv, bool isUseStdOut, bool isUseStdIn);
+		void     create(const std::string &exec_path, const std::vector<std::string> &argv, bool isUseStdOut, bool isUseStdIn);
 		pid_type pid(void) { return this->_pid; }
 		bool     write_stdin(const std::string &str);
 		bool     write_stdin(std::istream &ios);
@@ -39,6 +40,9 @@ class subproc {
 		bool     wait(void);
 		int      get_return(void) { return this->ret; }
 		void     terminate(void);
+
+		// static methods
+		static std::string find_exec_path(const std::string &exec_path) throw (std::runtime_error);
 
 	private:
 		FILE     *std_in;
@@ -58,7 +62,7 @@ inline subproc::~subproc(void)
 }
 
 // Methods definition
-inline void subproc::create(const std::vector<std::string> &argv, bool isUseStdOut = false, bool isUseStdIn = false)
+inline void subproc::create(const std::string &exec_path, const std::vector<std::string> &argv, bool isUseStdOut = false, bool isUseStdIn = false)
 {
 	size_t num_argv = argv.size();
 	char *const *args;
@@ -76,23 +80,23 @@ inline void subproc::create(const std::vector<std::string> &argv, bool isUseStdO
 	const_cast<char*&>(args[num_argv]) = NULL;
 
 	if (isUseStdOut && isUseStdIn) {
-		this->_pid = ngkh_subproc(args, &(this->std_in), &(this->std_out));
+		this->_pid = ngkh_subproc(exec_path.c_str(), args, &(this->std_in), &(this->std_out));
 
 		this->is_open_in  = true;
 		this->is_open_out = true;
 
 	} else if (isUseStdOut) {
-		this->_pid = ngkh_subproc(args, NULL, &(this->std_out));
+		this->_pid = ngkh_subproc(exec_path.c_str(), args, NULL, &(this->std_out));
 
 		this->is_open_out = true;
 
 	} else if (isUseStdIn) {
-		this->_pid = ngkh_subproc(args, &(this->std_in), NULL);
+		this->_pid = ngkh_subproc(exec_path.c_str(), args, &(this->std_in), NULL);
 
 		this->is_open_in = true;
 
 	} else {
-		this->_pid = ngkh_subproc(args, NULL, NULL);
+		this->_pid = ngkh_subproc(exec_path.c_str(), args, NULL, NULL);
 	}
 
 	delete [] args;

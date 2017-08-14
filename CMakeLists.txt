@@ -11,5 +11,7 @@ set(CMAKE_CXX_STANDARD 98)
 # [ For buiding this projects ]
 ## Libraries
 include_directories("include")
-add_library(ngkh_subproc subproc/subproc.c)
+add_library(ngkh_subproc_c subproc/subproc.c)
+add_library(ngkh_subproc   subproc/subproc.cpp)
+target_link_libraries(ngkh_subproc ngkh_subproc_c)
 
