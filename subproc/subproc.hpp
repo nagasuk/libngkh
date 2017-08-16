@@ -17,9 +17,9 @@ namespace ngkh {
 class subproc {
 	public:
 		//Constructors
-		subproc(void) : is_open_in(false), is_open_out(false), _pid(0) {}
+		subproc(void) : std_in(NULL), std_out(NULL), _pid(0) {}
 		subproc(const std::string &exec_path, const std::vector<std::string> &argv, bool isUseStdOut = false, bool isUseStdIn = false)
-			: is_open_in(false), is_open_out(false), _pid(0)
+			: std_in(NULL), std_out(NULL), _pid(0)
 		{ this->create(exec_path, argv, isUseStdOut, isUseStdIn); /* This set member variables. */}
 
 		// Destructor
@@ -35,8 +35,10 @@ class subproc {
 		bool     write_stdin(std::istream &ios);
 		void     read_stdout(std::string &str);
 		void     read_stdout(std::ostream &ios);
-		void     close_stdin(void)  { if (this->is_open_in)  { fclose(this->std_in);  this->is_open_in  = false; } }
-		void     close_stdout(void) { if (this->is_open_out) { fclose(this->std_out); this->is_open_out = false; } }
+		void     close_stdin(void)  { if (this->std_in)  { fclose(this->std_in);  this->std_in  = NULL; } }
+		void     close_stdout(void) { if (this->std_out) { fclose(this->std_out); this->std_out = NULL; } }
+		bool     is_open_in(void)   { if (this->std_in)  return true; else return false; }
+		bool     is_open_out(void)  { if (this->std_out) return true; else return false; }
 		bool     wait(void);
 		int      get_return(void) { return this->ret; }
 		void     terminate(void);
@@ -47,8 +49,6 @@ class subproc {
 	private:
 		FILE     *std_in;
 		FILE     *std_out;
-		bool      is_open_in;
-		bool      is_open_out;
 		pid_type  _pid;
 		int       ret;
 };
@@ -79,32 +79,24 @@ inline void subproc::create(const std::string &exec_path, const std::vector<std:
 
 	const_cast<char*&>(args[num_argv]) = NULL;
 
-	if (isUseStdOut && isUseStdIn) {
+	if (isUseStdOut && isUseStdIn)
 		this->_pid = ngkh_subproc(exec_path.c_str(), args, &(this->std_in), &(this->std_out));
 
-		this->is_open_in  = true;
-		this->is_open_out = true;
-
-	} else if (isUseStdOut) {
+	else if (isUseStdOut)
 		this->_pid = ngkh_subproc(exec_path.c_str(), args, NULL, &(this->std_out));
 
-		this->is_open_out = true;
-
-	} else if (isUseStdIn) {
+	else if (isUseStdIn)
 		this->_pid = ngkh_subproc(exec_path.c_str(), args, &(this->std_in), NULL);
 
-		this->is_open_in = true;
-
-	} else {
+	else
 		this->_pid = ngkh_subproc(exec_path.c_str(), args, NULL, NULL);
-	}
 
 	delete [] args;
 }
 
 inline bool subproc::write_stdin(const std::string &str)
 {
-	if (!this->is_open_in)
+	if (!this->std_in)
 		return false;
 
 	if (fputs(str.c_str(), this->std_in) == -1) {
@@ -119,7 +111,7 @@ inline bool subproc::write_stdin(std::istream &is)
 {
 	std::string str;
 
-	if (!this->is_open_in)
+	if (!this->std_in)
 		return false;
 
 	str.assign((std::istreambuf_iterator<char>(is)),
@@ -132,7 +124,7 @@ inline void subproc::read_stdout(std::string &str)
 {
 	char strbuf[256];
 
-	if (!this->is_open_out)
+	if (!this->std_out)
 		return;
 
 	while (fgets(strbuf, 256, this->std_out))
@@ -143,7 +135,7 @@ inline void subproc::read_stdout(std::ostream &os)
 {
 	char strbuf[256];
 
-	if (!this->is_open_out)
+	if (!this->std_out)
 		return;
 
 	while (fgets(strbuf, 256, this->std_out))

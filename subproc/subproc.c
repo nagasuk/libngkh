@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <string.h>
 #include <limits.h>
 #include <unistd.h>
@@ -27,6 +26,10 @@ pid_t ngkh_subproc(const char *exec_path, char *const *argv, FILE **std_in, FILE
 	if (std_in) {
 		if (pipe(pipe_p2c)) {
 			fprintf(stderr, "Error: Fail to create pipe to child proc.\n");
+			*std_in = NULL;
+
+			if (std_out) *std_out = NULL;
+
 			return pid;
 		}
 
@@ -38,10 +41,13 @@ pid_t ngkh_subproc(const char *exec_path, char *const *argv, FILE **std_in, FILE
 	if (std_out) {
 		if (pipe(pipe_c2p)) {
 			fprintf(stderr, "Error: Fail to create pipe from child proc.\n");
+			*std_out = NULL;
 
 			if (std_in) {
 				for (size_t i = 0; i < 2; i++)
 					close(pipe_p2c[i]);
+
+				*std_in = NULL;
 			}
 
 			return pid;
@@ -55,6 +61,18 @@ pid_t ngkh_subproc(const char *exec_path, char *const *argv, FILE **std_in, FILE
 	if (posix_spawn(&pid, exec_path, &actions, NULL, argv, NULL) != 0) {
 		fprintf(stderr, "Error: Fail to spawn process.\n");
 		pid = -1;
+
+		if (std_in) {
+			for (size_t i = 0; i < 2; i++)
+				close(pipe_p2c[i]);
+			*std_in  = NULL;
+		}
+
+		if (std_out) {
+			for (size_t i = 0; i < 2; i++)
+				close(pipe_c2p[i]);
+			*std_out = NULL;
+		}
 
 		return pid;
 	}
@@ -75,51 +93,101 @@ pid_t ngkh_subproc(const char *exec_path, char *const *argv, FILE **std_in, FILE
 //===== ngkh_find_exec_path() =====
 char *ngkh_subproc_find_exec_path(const char *exec_name)
 {
-	char *env_path = getenv("PATH");
-	char *path_dir;
-	char abs_path[PATH_MAX+1];
+	const char    *_env_path  = getenv("PATH");
+	      char    *env_path   = NULL;
+	      size_t   num_paths  = 1, max_length_tmp;
+	      size_t   max_length = 0;
+	      char   **paths      = NULL;
 
-	if ((env_path == NULL) || (env_path[0] == '\0')) {
+	      char   *abs_path  = NULL;
+	      char   *work_buf  = NULL;
+	      size_t  buf_size;
+
+	if ((_env_path == NULL) || (_env_path[0] == '\0')) {
 		fprintf(stderr, "Error: The environment variable of \"PATH\" is not set.\n");
 		return NULL;
 	}
 
-	path_dir = strtok(env_path, ":");
-	if (ngkh_check_exist_executable(path_dir, exec_name, abs_path))
-		return realpath(abs_path, NULL);
+	env_path = strdup(_env_path);
 
-	while ((path_dir = strtok(NULL, ":")) != NULL) {
-		if (ngkh_check_exist_executable(path_dir, exec_name, abs_path))
-			return realpath(abs_path, NULL);
+	// Get max length of path string
+	for (size_t i = 0; env_path[i] != '\0'; i++) {
+		if (env_path[i] == ':')
+			num_paths++;
+	}
+	paths = (char**)calloc(num_paths, sizeof (char*));
+
+	paths[0] = strtok(env_path, ":");
+	max_length = strlen(paths[0]);
+
+	for (size_t i = 1; i < num_paths; i++) {
+		paths[i] = strtok(NULL, ":");
+		max_length_tmp = strlen(paths[i]);
+
+		if (max_length_tmp > max_length)
+			max_length = max_length_tmp;
 	}
 
+	// Check executable
+	buf_size = max_length + strlen(exec_name) + 2; // "+2" means '/' and '\0'
+	work_buf = (char*)calloc(buf_size, sizeof (char));
+
+	for (size_t i = 0; i < num_paths; i++) {
+		if ((abs_path = ngkh_check_exist_executable(paths[i], exec_name, work_buf, buf_size)) != NULL) {
+			free(paths);
+			free(work_buf);
+			free(env_path);
+			return abs_path;
+		}
+	}
+
+	free(paths);
+	free(work_buf);
+	free(env_path);
 	fprintf(stderr, "Error: The executable of \"%s\" cannot be found.\n", exec_name);
 
-	return NULL; // if not found
+	return NULL; // This means the executable is not found.
 }
 
-bool ngkh_check_exist_executable(const char *dir, const char *exec_name, char *abs_path)
+char *ngkh_check_exist_executable(const char *dir, const char *exec_name, char *work_buf, size_t buf_size)
 {
-	char        _abs_path[PATH_MAX+1];
-	struct stat st;
+	struct stat  st;
+	char        *abs_path  = NULL;
+	char        *_work_buf = work_buf;
+	size_t       _buf_size = ((work_buf) ? buf_size : PATH_MAX + 1);
 
-	if ((strlen(dir) + strlen(exec_name)) > PATH_MAX) {
+	if ((strlen(dir) + strlen(exec_name) + 1) > (_buf_size - 1)) {
 		fprintf(stderr, "Error: The path of executable is too long.\n");
-		return false;
+		return NULL;
 	}
 
-	sprintf(_abs_path, "%s/%s", dir, exec_name);
-	if (!realpath(_abs_path, abs_path))
-		return false;
+	if (!work_buf)
+		_work_buf = (char*)calloc(_buf_size, sizeof (char));
+
+	sprintf(_work_buf, "%s/%s", dir, exec_name);
+	if ((abs_path = realpath(_work_buf, NULL)) == NULL) {
+		if (!work_buf)
+			free(_work_buf);
+
+		return NULL;
+	}
+
+	if (!work_buf)
+		free(_work_buf);
 
 	if (stat(abs_path, &st) == -1) {
 		fprintf(stderr, "Error: Something occurred.\n");
-		return false;
+		free(abs_path);
+		abs_path = NULL;
+		return NULL;
 	}
 
-	if (!S_ISREG(st.st_mode))
-		return false;
+	if (!S_ISREG(st.st_mode)) {
+		free(abs_path);
+		abs_path = NULL;
+		return NULL;
+	}
 
-	return true;
+	return abs_path;
 }
 
