@@ -22,7 +22,7 @@ string subproc::find_exec_path(const string &exec_name) throw (runtime_error)
 
 	free(path_c_str);
 
-	return string(ret);
+	return ret;
 }
 
 } // end of namespace ngkh
