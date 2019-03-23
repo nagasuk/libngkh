@@ -33,6 +33,8 @@ class subproc {
 		pid_type pid(void) { return this->_pid; }
 		bool     write_stdin(const std::string &str);
 		bool     write_stdin(std::istream &ios);
+		void     readline_stdout(std::string &str);
+		void     readline_stdout(std::ostream &ios);
 		void     read_stdout(std::string &str);
 		void     read_stdout(std::ostream &ios);
 		void     close_stdin(void)  { if (this->std_in)  { fclose(this->std_in);  this->std_in  = NULL; } }
@@ -103,6 +105,7 @@ inline bool subproc::write_stdin(const std::string &str)
 		std::cerr << "Error: Write to stdin of child proc.\n" << std::endl;
 		return false;
 	}
+	fflush(this->std_in);
 
 	return true;
 }
@@ -120,6 +123,36 @@ inline bool subproc::write_stdin(std::istream &is)
 	return this->write_stdin(str);
 }
 
+inline void subproc::readline_stdout(std::string &str)
+{
+	char strbuf[256];
+
+	if (!this->std_out)
+		return;
+
+	fgets(strbuf, 256, this->std_out);
+	str = strbuf;
+	if (*(str.rbegin()) == '\n') str.erase(str.end() - 1);
+}
+
+inline void subproc::readline_stdout(std::ostream &os)
+{
+	char strbuf[256];
+
+	if (!this->std_out)
+		return;
+
+	fgets(strbuf, 256, this->std_out);
+
+	for (size_t i = 0; ((i < 256) || (strbuf[i] != '\0')); i++) {
+		if (strbuf[i] == '\n') {
+			strbuf[i] = '\0';
+			break;
+		}
+	}
+	os << strbuf;
+}
+
 inline void subproc::read_stdout(std::string &str)
 {
 	char strbuf[256];
@@ -127,8 +160,9 @@ inline void subproc::read_stdout(std::string &str)
 	if (!this->std_out)
 		return;
 
-	while (fgets(strbuf, 256, this->std_out))
+	while (fgets(strbuf, 256, this->std_out)) {
 		str += strbuf;
+	}
 }
 
 inline void subproc::read_stdout(std::ostream &os)
